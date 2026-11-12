@@ -1,0 +1,58 @@
+# API de efemérides detrás del Traefik que ya corre en el VPS (/docker/n8n).
+# Valores de entorno en .env (ver .env.example). No toca la configuración de n8n.
+services:
+  ephemeris:
+    build: .
+    image: astroestela-ephemeris:${EPHEM_VERSION:-dev}
+    container_name: astroestela-ephemeris
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      EPHEM_DATA_DIR: /data
+    volumes:
+      - ./data:/data:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - n8n_default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.services.ephem.loadbalancer.server.port=8000
+
+      # Rutas de cálculo: solo desde las IPs permitidas (hosting de WordPress).
+      - traefik.http.routers.ephem.rule=Host(`${EPHEM_HOST}`)
+      - traefik.http.routers.ephem.entrypoints=websecure
+      - traefik.http.routers.ephem.tls=true
+      - traefik.http.routers.ephem.tls.certresolver=mytlschallenge
+      - traefik.http.routers.ephem.service=ephem
+      - traefik.http.routers.ephem.middlewares=ephem-ipallow,ephem-ratelimit,ephem-headers
+
+      # /health (monitorización) y /source (obligación AGPL) son públicas.
+      - traefik.http.routers.ephem-public.rule=Host(`${EPHEM_HOST}`) && (Path(`/health`) || Path(`/source`))
+      - traefik.http.routers.ephem-public.priority=100
+      - traefik.http.routers.ephem-public.entrypoints=websecure
+      - traefik.http.routers.ephem-public.tls=true
+      - traefik.http.routers.ephem-public.tls.certresolver=mytlschallenge
+      - traefik.http.routers.ephem-public.service=ephem
+      - traefik.http.routers.ephem-public.middlewares=ephem-ratelimit,ephem-headers
+
+      # Traefik v3 usa "ipallowlist"; en v2 se llama "ipwhitelist" (ver README).
+      - traefik.http.middlewares.ephem-ipallow.ipallowlist.sourcerange=${EPHEM_ALLOWED_IPS}
+      - traefik.http.middlewares.ephem-ratelimit.ratelimit.average=20
+      - traefik.http.middlewares.ephem-ratelimit.ratelimit.burst=40
+      - traefik.http.middlewares.ephem-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.ephem-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.ephem-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.ephem-headers.headers.frameDeny=true
+      - traefik.http.middlewares.ephem-headers.headers.referrerPolicy=no-referrer
+
+networks:
+  n8n_default:
+    external: true

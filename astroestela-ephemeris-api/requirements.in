@@ -1,0 +1,6 @@
+fastapi==0.162.5
+uvicorn==0.54.0
+pydantic==2.13.5
+pyswisseph==2.10.3.2
+timezonefinder==9.2.0
+tzdata==2026.6
